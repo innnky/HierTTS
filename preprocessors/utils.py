@@ -146,28 +146,34 @@ def get_alignment_word_boundary(tier, word_tier, sampling_rate, hop_length, lang
     word_boundary_time = [w.end_time for w in word_tier._objects]
     word_text = [w.text for w in word_tier._objects]
     assert '<unk>' not in word_text
+    last_e = 0
     for t in tier._objects:
         s, e, p = t.start_time, t.end_time, t.text
+        if phones == []:
+            if p in sil_phones:
+                start_time = e
+                continue
+            elif last_e != s:
+                start_time = s
+        if last_e != s and phones != []:
+            phones.append('$')
+            pros_phones.append('$')
+            durations.append(int(s * sampling_rate / hop_length) - int(last_e * sampling_rate / hop_length))
 
-        # Trimming leading silences
-        if phones == [] and p in sil_phones:
-            start_time = e
-            continue
+        if p not in sil_phones:
+            phones.append(p)
+            pros_phones.append(p)
+            if e in word_boundary_time:
+                pros_phones.append('^')
+            end_time = e
+            end_idx = len(phones)
+            end_idx_pros = len(pros_phones)
         else:
-            if p not in sil_phones:
-                phones.append(p)
-                pros_phones.append(p)
-                if e in word_boundary_time:
-                    pros_phones.append('^')
-                end_time = e
-                end_idx = len(phones)
-                end_idx_pros = len(pros_phones)
-            else:
-                phones.append('$')
-                pros_phones.append('$')
-            durations.append(int(e*sampling_rate/hop_length)-int(s*sampling_rate/hop_length))
+            phones.append('$')
+            pros_phones.append('$')
+        durations.append(int(e*sampling_rate/hop_length)-int(s*sampling_rate/hop_length))
         last_time = int(math.floor(e*sampling_rate/hop_length))
-
+        last_e = e
     # Trimming tailing silences
     phones = phones[:end_idx]
     pros_phones = pros_phones[:end_idx_pros]
@@ -182,8 +188,9 @@ def get_alignment_word_boundary(tier, word_tier, sampling_rate, hop_length, lang
     assert len(phones)==sum(mask)
 
     #add language identifier
-    phones = [x+'_'+language_mapping[language] if x!='$' else x  for x in phones]
-    pros_phones = [x+'_'+language_mapping[language] if x!='$' else x for x in pros_phones]
+    # phones = [x+'_'+language_mapping[language] if x!='$' else x  for x in phones]
+    # pros_phones = [x+'_'+language_mapping[language] if x!='$' else x for x in pros_phones]
+    assert abs(sampling_rate*(end_time-start_time)/hop_length- sum(durations))<1
     return phones, durations, start_time, end_time, pros_phones, mask
 
 

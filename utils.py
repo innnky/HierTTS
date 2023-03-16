@@ -1,3 +1,4 @@
+import shutil
 from email.policy import strict
 import os
 import glob
@@ -7,6 +8,7 @@ import logging
 import json
 import subprocess
 import numpy as np
+from matplotlib import pyplot as plt
 from scipy.io.wavfile import read
 import torch
 import torch.nn.functional as F
@@ -315,7 +317,8 @@ def process_meta_multi(meta_path, hop_length, outlier_path=None):
         _meta_path = meta_path[i]
         with open(_meta_path, "r", encoding="utf-8") as f: 
             for line in f.readlines():
-                n, t, pt, m, ipa, txt, t2s, s2p, enc, _, w2s, sp, s2s  = line.strip('\n').split('|')[:13]
+                # name|text|plain_text|mask|_|clean_txt|txt2sub|sub2phn|encoding|_|word2sub|space|sub2sub
+                n, t, pt, m, _, txt, t2s, s2p, enc, _, w2s, sp, s2s  = line.strip('\n').split('|')[:13]
                 if n[0]=='e':
                     continue
                 if '+zimu' in pt:
