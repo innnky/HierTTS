@@ -38,7 +38,7 @@ from stft_loss import MultiResolutionSTFTLoss
 
 torch.backends.cudnn.benchmark = True
 global_step = 0
-
+global_save_gt = True
 def anneal_weight(start_step, end_step, start_w, end_w, current_step):
   if current_step<start_step:
     return start_w
@@ -95,12 +95,12 @@ def run(rank, n_gpus, hps):
       rank=rank,
       shuffle=True)
   collate_fn = train_dataset.collate_fn
-  train_loader = DataLoader(train_dataset, num_workers=8, shuffle=False, pin_memory=True,
+  train_loader = DataLoader(train_dataset, num_workers=6, shuffle=False, pin_memory=True,
       collate_fn=collate_fn, batch_sampler=train_sampler)
   if rank == 0:
     eval_dataset = TextAudioSpeakerLoader(hps.data.data_path, 'val.txt', hps.data.speakerlist, hps.data)
-    eval_loader = DataLoader(eval_dataset, num_workers=8, shuffle=False,
-        batch_size=hps.train.batch_size, pin_memory=True,
+    eval_loader = DataLoader(eval_dataset, num_workers=1, shuffle=False,
+        batch_size=2, pin_memory=True,
         drop_last=False, collate_fn=collate_fn)
 
   net_g = SynthesizerTrn(
@@ -300,12 +300,28 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         logger.info([x.item() for x in kls])
 
         logger.info([sent_kl, word_kl, subword_kl, phn_kl, frame_kl ])
+        scalar_dict = {"loss/g/total": loss_gen_all, "loss/d/total": loss_disc_all, "learning_rate": lr,
+                       "grad_norm_d": grad_norm_d, "grad_norm_g": grad_norm_g}
+        scalar_dict.update(
+            {"loss/g/mel": loss_mel})
 
+        image_dict = {
+            "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
+            "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
+            "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
+        }
+        utils.summarize(
+            writer=writer,
+            global_step=global_step,
+            images=image_dict,
+            scalars=scalar_dict)
 
       if global_step % hps.train.eval_interval == 0:
-        #evaluate(hps, net_g, eval_loader, writer_eval)
+        evaluate(hps, net_g, eval_loader, writer_eval)
         utils.save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "G_{}.pth".format(global_step)))
         utils.save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "D_{}.pth".format(global_step)))
+        utils.clean_checkpoints(path_to_models=hps.model_dir, n_ckpts_to_keep=3, sort_by_time=True)
+
     global_step += 1
   
   if rank == 0:
@@ -313,29 +329,37 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
 
  
 def evaluate(hps, generator, eval_loader, writer_eval):
+    global global_save_gt
     generator.eval()
     with torch.no_grad():
-      for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths, speakers, d_target, p_target, e_target, log_D) in enumerate(eval_loader):
-        x, x_lengths = x.cuda(0), x_lengths.cuda(0)
-        spec, spec_lengths = spec.cuda(0), spec_lengths.cuda(0)
-        y, y_lengths = y.cuda(0), y_lengths.cuda(0)
-        speakers = speakers.cuda(0)
-        d_target = d_target.cuda()
-        p_target = p_target.cuda()
-        e_target = e_target.cuda()
-        log_D = log_D.cuda()
+      for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths, speakers, d_target_m, d_target_e, p_target, e_target, log_D, txt2sub, sub2phn_m, sub2phn_e, txt, txt_len, word2sub_m, word2sub_e, word_len, sub2sub, sub_len, names, sent2word_m, sent2word_e) in enumerate(eval_loader):
+        rank=0
+        x, x_lengths = x.cuda(rank, non_blocking=True), x_lengths.cuda(rank, non_blocking=True)
+        spec, spec_lengths = spec.cuda(rank, non_blocking=True), spec_lengths.cuda(rank, non_blocking=True)
+        y, y_lengths = y.cuda(rank, non_blocking=True), y_lengths.cuda(rank, non_blocking=True)
+        txt, txt_lengths = txt.cuda(rank, non_blocking=True), txt_len.cuda(rank, non_blocking=True)
+        txt2sub = txt2sub.cuda(rank, non_blocking=True)
+        word_lengths = word_len.cuda(rank, non_blocking=True)
+        sub2sub = sub2sub.cuda(rank, non_blocking=True)
+        sub_len = sub_len.cuda(rank, non_blocking=True)
 
-        # remove else
-        x = x[:1]
-        x_lengths = x_lengths[:1]
-        spec = spec[:1]
-        spec_lengths = spec_lengths[:1]
-        y = y[:1]
-        y_lengths = y_lengths[:1]
-        speakers = speakers[:1]
+        speakers = speakers.cuda(rank, non_blocking=True)
+
+        p_target = p_target.cuda(rank, non_blocking=True)
+        e_target = e_target.cuda(rank, non_blocking=True)
+        log_D = log_D.cuda(rank, non_blocking=True)
+
+        d_target_m = d_target_m.cuda(rank, non_blocking=True)
+        sub2phn_m = sub2phn_m.cuda(rank, non_blocking=True)
+        word2sub_m = word2sub_m.cuda(rank, non_blocking=True)
+        sent2word_m = sent2word_m.cuda(rank, non_blocking=True)
+
+        d_target_e = d_target_e.cuda(rank, non_blocking=True)
+        sub2phn_e = sub2phn_e.cuda(rank, non_blocking=True)
+        word2sub_e = word2sub_e.cuda(rank, non_blocking=True)
+        sent2word_e = sent2word_e.cuda(rank, non_blocking=True)
         break
-      y_hat, attn, mask, *_ = generator.module.infer(x, x_lengths, speakers, max_len=1000, spec=spec, spec_lengths=spec_lengths)
-      y_hat_lengths = mask.sum([1,2]).long() * hps.data.hop_length
+      y_hat = generator.module.infer(x, x_lengths,  txt, txt_len, txt2sub, speakers, None, None, sub2phn_m, sub2phn_e,  word2sub_m, word2sub_e, sent2word_m, sent2word_e, word_len, sub2sub, sub_len)
 
       mel = spec_to_mel_torch(
         spec, 
@@ -358,12 +382,13 @@ def evaluate(hps, generator, eval_loader, writer_eval):
       "gen/mel": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy())
     }
     audio_dict = {
-      "gen/audio": y_hat[0,:,:y_hat_lengths[0]]
+      "gen/audio": y_hat[0,:,:]
     }
 
-    if global_step == 0:
+    if global_save_gt:
       image_dict.update({"gt/mel": utils.plot_spectrogram_to_numpy(mel[0].cpu().numpy())})
       audio_dict.update({"gt/audio": y[0,:,:y_lengths[0]]})
+      global_save_gt = False
 
     utils.summarize(
       writer=writer_eval,

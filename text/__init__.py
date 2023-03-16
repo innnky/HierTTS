@@ -30,7 +30,7 @@ def text_to_sequence(text, cleaner_names):
     # Check for curly braces and treat their contents as ARPAbet:
     while len(text):
         m = _curly_re.match(text)
-        
+
         if not m:
             sequence += _symbols_to_sequence(_clean_text(text, cleaner_names))
             break
@@ -79,3 +79,8 @@ def _should_keep_symbol(s):
         print(s)
         raise RuntimeError('{} is not in symbols'.format(s))
     return s in _symbol_to_id and s is not '_' and s is not '~'
+
+
+sequence = text_to_sequence("{zh e4 m ei2 ii iu3 uu uang2 f a3 l e5} {b a3 uu ua2 zh en1 z ao1 t a4}", [])
+print(sequence)
+print(symbols[:10])

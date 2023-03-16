@@ -2102,7 +2102,7 @@ class SynthesizerTrn(nn.Module):
 
     #phn2frame
     s = self.phn2frame_comb(phn_embeded, z_phn) if self.straight_phn else self.phn2frame_comb(s, z_phn)
-    
+    phn2frame_ali = phn2frame_ali.to(s.device)
     s = self.phn2frame(s, phn2frame_ali)
     m_frame_p, std_frame_p = self.phn2frame_proj(s)
     if temperature['frame']!=0:

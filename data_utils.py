@@ -263,7 +263,15 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
                 wav_mask += D[i]*self.config.hop_length*[1]
         audio_path = os.path.join(
             self.data_path[idx], "audio", "{}-audio-{}.npy".format(self.dataset,basename))
-        audio = np.load(audio_path)*np.asarray(wav_mask)
+        wav_mask = np.asarray(wav_mask)
+        audio = np.load(audio_path)
+        assert abs(audio.shape[0]-wav_mask.shape[0])<2*self.config.hop_length
+        if len(audio) > len(wav_mask):
+            audio = audio[:len(wav_mask)]
+        else:
+            pad_width = (0, len(wav_mask) - len(audio))
+            audio = np.pad(audio, pad_width, mode='constant', constant_values=0)
+        audio = audio*wav_mask
         spec_path = os.path.join(
             self.data_path[idx], "spec", "{}-spec-{}.npy".format(self.dataset,basename))
         mel_target = self.get_audio(audio, spec_path).T
