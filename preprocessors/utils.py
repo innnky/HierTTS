@@ -133,7 +133,66 @@ def get_alignment_by_mono(_file, prosody, pinyin, sampling_rate, hop_length, ret
 
 
 language_mapping = {'Chinese':'zh', 'Uygur': 'ug','English':'en','Spanish':'es','German':'de','Franch':'fr','Japanese':'ja','Korean':'ko'}
-def get_alignment_word_boundary(tier, word_tier, sampling_rate, hop_length, language, return_full=False):
+def get_alignment_word_boundary(tier, word_tier, sampling_rate, hop_length, language, return_tail=True):
+    sil_phones = ['sil', 'sp', 'spn', '']
+
+    phones = []
+    pros_phones = []
+    durations = []
+    start_time = 0
+    end_time = 0
+    end_idx = 0
+    last_time = 0
+    word_boundary_time = [w.end_time for w in word_tier._objects]
+    word_text = [w.text for w in word_tier._objects]
+    assert '<unk>' not in word_text
+    last_e = 0
+    for t in tier._objects:
+        s, e, p = t.start_time, t.end_time, t.text
+        if phones == []:
+            if p in sil_phones:
+                start_time = e
+                continue
+            elif last_e != s:
+                start_time = s
+        if last_e != s and phones != []:
+            durations[-1] += int(s * sampling_rate / hop_length) - int(last_e * sampling_rate / hop_length)
+
+        if p not in sil_phones:
+            phones.append(p)
+            pros_phones.append(p)
+            if e in word_boundary_time:
+                pros_phones.append('^')
+            end_time = e
+            end_idx = len(phones)
+            end_idx_pros = len(pros_phones)
+        else:
+            assert False
+            # phones.append('$')
+            # pros_phones.append('$')
+        durations.append(int(e*sampling_rate/hop_length)-int(s*sampling_rate/hop_length))
+        last_time = int(math.floor(e*sampling_rate/hop_length))
+        last_e = e
+    # Trimming tailing silences
+    phones = phones[:end_idx]
+    pros_phones = pros_phones[:end_idx_pros]
+    if return_tail:
+        durations = durations[:end_idx]
+        durations[-1]+=int(tier.end_time*sampling_rate/hop_length)-int(math.floor(end_time*sampling_rate/hop_length))
+        end_time=tier.end_time
+    else:
+        durations = durations[:end_idx]
+
+    mask = [0 if x in ['1','2','3','4','5','^'] else 1 for x in pros_phones]
+    assert len(phones)==sum(mask)
+    assert len(durations) == len(phones)
+    #add language identifier
+    # phones = [x+'_'+language_mapping[language] if x!='$' else x  for x in phones]
+    # pros_phones = [x+'_'+language_mapping[language] if x!='$' else x for x in pros_phones]
+    assert abs(sampling_rate*(end_time-start_time)/hop_length- sum(durations))<1, (sampling_rate*(end_time-start_time)/hop_length, sum(durations))
+    return phones, durations, start_time, end_time, pros_phones, mask
+
+def get_alignment_word_boundary_without_merge(tier, word_tier, sampling_rate, hop_length, language, return_tail=True):
     sil_phones = ['sil', 'sp', 'spn', '']
 
     phones = []
@@ -177,22 +236,23 @@ def get_alignment_word_boundary(tier, word_tier, sampling_rate, hop_length, lang
     # Trimming tailing silences
     phones = phones[:end_idx]
     pros_phones = pros_phones[:end_idx_pros]
-    if return_full:
+    if return_tail:
         durations = durations[:end_idx]
-        durations.insert(0,int(math.floor(start_time*sampling_rate/hop_length)))
-        durations.append(last_time-int(math.floor(end_time*sampling_rate/hop_length)))
+        durations.append(int(tier.end_time*sampling_rate/hop_length)-int(math.floor(end_time*sampling_rate/hop_length)))
+        end_time=tier.end_time
+        phones.append('$')
+        pros_phones.append('$')
     else:
         durations = durations[:end_idx]
-    
+
     mask = [0 if x in ['1','2','3','4','5','^'] else 1 for x in pros_phones]
     assert len(phones)==sum(mask)
-
+    assert len(durations) == len(phones)
     #add language identifier
     # phones = [x+'_'+language_mapping[language] if x!='$' else x  for x in phones]
     # pros_phones = [x+'_'+language_mapping[language] if x!='$' else x for x in pros_phones]
-    assert abs(sampling_rate*(end_time-start_time)/hop_length- sum(durations))<1
+    assert abs(sampling_rate*(end_time-start_time)/hop_length- sum(durations))<1, (sampling_rate*(end_time-start_time)/hop_length, sum(durations))
     return phones, durations, start_time, end_time, pros_phones, mask
-
 
 def is_outlier(x, p25, p75):
     """Check if value is an outlier."""

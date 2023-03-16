@@ -158,6 +158,9 @@ class Frontend():
             for c, v in zip(initials, finals):
                 # NOTE: post process for pypinyin outputs
                 # we discriminate i, ii and iii
+                if c =="r5":
+                    phones.append("er5")
+                    continue
                 if c:
                     phones.append(c)
                 if v and v not in self.punc:
@@ -311,5 +314,5 @@ class Frontend():
             # Replace all English words in the sentence
             seg = re.sub('[a-zA-Z]+', '', seg)
             seg_cut = psg.lcut(seg)
-            res.append(seg_cut)
+            res+=seg_cut
         return res
