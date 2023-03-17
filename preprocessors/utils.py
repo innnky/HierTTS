@@ -145,6 +145,7 @@ def get_alignment_word_boundary(tier, word_tier,sp_position, sampling_rate, hop_
     last_time = 0
     word_boundary_time = [w.end_time for w in word_tier._objects]
     word_text = [w.text for w in word_tier._objects]
+    used_sp_position = []
     assert '<unk>' not in word_text
     last_e = 0
     for t in tier._objects:
@@ -159,6 +160,7 @@ def get_alignment_word_boundary(tier, word_tier,sp_position, sampling_rate, hop_
             if word_pos not in sp_position:
                 durations[-1] += int(s * sampling_rate / hop_length) - int(last_e * sampling_rate / hop_length)
             else:
+                used_sp_position.append(word_pos)
                 phones.append('$')
                 pros_phones.append('$')
                 durations.append(int(s * sampling_rate / hop_length) - int(last_e * sampling_rate / hop_length))
@@ -197,7 +199,7 @@ def get_alignment_word_boundary(tier, word_tier,sp_position, sampling_rate, hop_
     # phones = [x+'_'+language_mapping[language] if x!='$' else x  for x in phones]
     # pros_phones = [x+'_'+language_mapping[language] if x!='$' else x for x in pros_phones]
     assert abs(sampling_rate*(end_time-start_time)/hop_length- sum(durations))<1, (sampling_rate*(end_time-start_time)/hop_length, sum(durations))
-    return phones, durations, start_time, end_time, pros_phones, mask
+    return phones, durations, start_time, end_time, pros_phones, mask,used_sp_position
 
 def get_alignment_word_boundary_without_merge(tier, word_tier, sampling_rate, hop_length, language, return_tail=True):
     sil_phones = ['sil', 'sp', 'spn', '']

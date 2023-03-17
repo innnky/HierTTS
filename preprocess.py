@@ -130,7 +130,7 @@ with open(f"{preprocessed_out_path}/train.txt", "w") as f:
 
                 sp_position = get_sentence_positions(clean_txt)
                 res = get_alignment_word_boundary(phone_tier, word_tier, sp_position,sampling_rate, hop, "Chinese", return_tail=True)
-                phones, durations, start_time, end_time, pros_phones, mask = res
+                phones, durations, start_time, end_time, pros_phones, mask,sp_position = res
 
                 encoding_txt =["[CLS]"]+ [ch for ch in clean_txt] +["[SEP]"]
                 try:
@@ -161,7 +161,8 @@ with open(f"{preprocessed_out_path}/train.txt", "w") as f:
                     else:
                         sub2sub.append(-1)
 
-
+                if name == "vo_ELLQ003_7_paimon_04":
+                    print(1)
                 sub2phn = []
                 ph_count = 0
                 for ph in pros_phones:
@@ -175,7 +176,7 @@ with open(f"{preprocessed_out_path}/train.txt", "w") as f:
                         ph_count += 1
                 if  len(sub2phn) != len(sub) or sum(sub2phn) != len(phones):
                     print("skip",txt, phones)
-
+                    continue
                 word2sub = []
                 idx = 0
                 for pair in segments:
@@ -187,7 +188,6 @@ with open(f"{preprocessed_out_path}/train.txt", "w") as f:
                 if sum(word2sub) != len(sub):
                     print("skip",txt,phones)
                     continue
-
                 outline = []
                 outline.append(name)
                 outline.append(" ".join(["{"+i.strip()+"}" for i in " ".join(phones).split('$')]))
@@ -203,6 +203,8 @@ with open(f"{preprocessed_out_path}/train.txt", "w") as f:
                 outline.append(" ".join(["1" for i in word2sub]))
                 outline.append(" ".join([str(i) for i in sub2sub]))
                 f.write("|".join(outline)+"\n")
+                assert sum(word2sub) == len(sub2phn),"\n".join(outline)
+
                 # print(clean_txt)
                 # for pair in segments:
                 #     print(pair.word)
