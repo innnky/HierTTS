@@ -133,9 +133,9 @@ def get_alignment_by_mono(_file, prosody, pinyin, sampling_rate, hop_length, ret
 
 
 language_mapping = {'Chinese':'zh', 'Uygur': 'ug','English':'en','Spanish':'es','German':'de','Franch':'fr','Japanese':'ja','Korean':'ko'}
-def get_alignment_word_boundary(tier, word_tier, sampling_rate, hop_length, language, return_tail=True):
+def get_alignment_word_boundary(tier, word_tier,sp_position, sampling_rate, hop_length, language, return_tail=True):
     sil_phones = ['sil', 'sp', 'spn', '']
-
+    word_pos = 0
     phones = []
     pros_phones = []
     durations = []
@@ -156,13 +156,20 @@ def get_alignment_word_boundary(tier, word_tier, sampling_rate, hop_length, lang
             elif last_e != s:
                 start_time = s
         if last_e != s and phones != []:
-            durations[-1] += int(s * sampling_rate / hop_length) - int(last_e * sampling_rate / hop_length)
+            if word_pos not in sp_position:
+                durations[-1] += int(s * sampling_rate / hop_length) - int(last_e * sampling_rate / hop_length)
+            else:
+                phones.append('$')
+                pros_phones.append('$')
+                durations.append(int(s * sampling_rate / hop_length) - int(last_e * sampling_rate / hop_length))
+
 
         if p not in sil_phones:
             phones.append(p)
             pros_phones.append(p)
             if e in word_boundary_time:
                 pros_phones.append('^')
+                word_pos+=1
             end_time = e
             end_idx = len(phones)
             end_idx_pros = len(pros_phones)

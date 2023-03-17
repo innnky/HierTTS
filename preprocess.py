@@ -70,6 +70,30 @@ def get_pitch(wav_data,lll):
 
     return f0
 
+
+def is_chinese_character(ch):
+    return bool(re.search(r'[\u4e00-\u9fa5]', ch))
+
+def get_sentence_positions(clean_txt):
+    positions = []
+
+    res = []
+    cum= ""
+    for ch in clean_txt:
+        cum += ch
+        if not is_chinese_character(ch):
+            if len(cum)>1:
+                res.append(cum)
+            cum=''
+    current_pos=0
+    sp_symbols = []
+    for sentence in res[:-1]:
+        positions.append(len(sentence)-1+current_pos)
+        current_pos += len(sentence) -1
+        # sp_symbols.append(sentence[-1])
+    return positions
+
+
 os.makedirs(preprocessed_out_path, exist_ok=True)
 os.makedirs(f"{preprocessed_out_path}/alignment", exist_ok=True)
 os.makedirs(f"{preprocessed_out_path}/audio", exist_ok=True)
@@ -91,8 +115,8 @@ with open(f"{preprocessed_out_path}/train.txt", "w") as f:
                 textgrid = tgt.io.read_textgrid(f"{tgt_base_path}/{tgt_path}")
                 phone_tier = textgrid.get_tier_by_name("phones")
                 word_tier = textgrid.get_tier_by_name("words")
-                res = get_alignment_word_boundary(phone_tier, word_tier, sampling_rate, hop, "Chinese", return_tail=True)
-                phones, durations, start_time, end_time, pros_phones, mask = res
+                # res = get_alignment_word_boundary(phone_tier, word_tier, sampling_rate, hop, "Chinese", return_tail=True)
+                # phones, durations, start_time, end_time, pros_phones, mask = res
                 txt = lab_dict[name]
                 if re.search(r'[a-zA-Z0-9]', txt):
                     print("跳过",txt)
@@ -103,6 +127,11 @@ with open(f"{preprocessed_out_path}/train.txt", "w") as f:
                     clean_txt+=pair.word
                 seg_txt = "#1".join([p.word for p in segments])
                 clean_txt = clean_txt.replace("…","...").replace("—","-")
+
+                sp_position = get_sentence_positions(clean_txt)
+                res = get_alignment_word_boundary(phone_tier, word_tier, sp_position,sampling_rate, hop, "Chinese", return_tail=True)
+                phones, durations, start_time, end_time, pros_phones, mask = res
+
                 encoding_txt =["[CLS]"]+ [ch for ch in clean_txt] +["[SEP]"]
                 try:
                     encoding = [bert_encodings[i] for i in encoding_txt]
@@ -111,13 +140,27 @@ with open(f"{preprocessed_out_path}/train.txt", "w") as f:
                     continue
                 sub = ''
                 txt2sub = []
+                idx = 0
                 for ch in encoding_txt:
-                    if re.search(r'[\u4e00-\u9fa5]', ch):
+
+                    if is_chinese_character(ch):
+                        idx+=1
                         sub += ch
                         txt2sub.append(1)
+                        if idx in sp_position:
+                            sub += '.'
                     else:
                         txt2sub.append(0)
-                sub2sub = [i for i in range(len(sub))]
+
+                sub2sub = []
+                idx = 0
+                for ch in sub:
+                    if ch != ".":
+                        sub2sub.append(idx)
+                        idx += 1
+                    else:
+                        sub2sub.append(-1)
+
 
                 sub2phn = []
                 ph_count = 0
@@ -125,24 +168,30 @@ with open(f"{preprocessed_out_path}/train.txt", "w") as f:
                     if ph =="^":
                         sub2phn.append(ph_count)
                         ph_count = 0
+                    elif ph =="$":
+                        assert ph_count==0
+                        sub2phn.append(1)
                     else:
                         ph_count += 1
                 if  len(sub2phn) != len(sub) or sum(sub2phn) != len(phones):
                     print("skip",txt, phones)
-                    continue
 
                 word2sub = []
+                idx = 0
                 for pair in segments:
                     if bool(re.match(r'^[\u4e00-\u9fa5]+$', pair.word)):
                         word2sub.append(len(pair.word))
+                        idx += len(pair.word)
+                        if idx in sp_position:
+                            word2sub.append(1)
                 if sum(word2sub) != len(sub):
                     print("skip",txt,phones)
                     continue
 
                 outline = []
                 outline.append(name)
-                outline.append("{"+" ".join(phones)+"}")
-                outline.append(("{"+" ".join(pros_phones)+"}").replace("^", "1"))
+                outline.append(" ".join(["{"+i.strip()+"}" for i in " ".join(phones).split('$')]))
+                outline.append(("{"+" ".join(pros_phones)+"}").replace("^", "1").replace("$ ",""))
                 outline.append(" ".join(["1" for i in range(len(phones))]))
                 outline.append(seg_txt)
                 outline.append(clean_txt)
@@ -153,15 +202,14 @@ with open(f"{preprocessed_out_path}/train.txt", "w") as f:
                 outline.append(" ".join([str(i) for i in word2sub]))
                 outline.append(" ".join(["1" for i in word2sub]))
                 outline.append(" ".join([str(i) for i in sub2sub]))
-                outline.append("\n")
-                f.write("|".join(outline))
+                f.write("|".join(outline)+"\n")
                 # print(clean_txt)
                 # for pair in segments:
                 #     print(pair.word)
 
                 # print(res)
                 # break
-
+                #
                 audio, sr = librosa.load(f"{wav_base_path}/{name}.wav", sr=sampling_rate)
                 audio = audio[int(start_time*sampling_rate):int(end_time*sampling_rate)]
                 pitch = get_pitch(audio, sum(durations))
@@ -200,8 +248,7 @@ with open(f"{preprocessed_out_path}/train.txt", "w") as f:
                 np.save(f"{preprocessed_out_path}/energy/multispeaker-energy-{name}.npy", energy)
                 np.save(f"{preprocessed_out_path}/f0/multispeaker-f0-{name}.npy", pitch)
 
-                # break
-
+#
 
 
 
