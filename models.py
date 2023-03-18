@@ -1790,6 +1790,7 @@ class SynthesizerTrn(nn.Module):
         self.sent_proj = GaussProj(128, inter_channels.word)
         self.mse_loss = nn.MSELoss()
         self.expand = LengthRegulator(inter_channels.phn, config.max_seq_len)
+        self.cond = nn.Conv1d(gin_channels, config.encoder_hidden, 1)
 
     def skipbymask(self, x, skip_mask):
         # skip mask
@@ -1822,11 +1823,11 @@ class SynthesizerTrn(nn.Module):
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
             g = None
-
-        phn_embeded = self.phn_emb(phn, phn_lengths)
+        spk_emb = self.cond(g)
+        phn_embeded = self.phn_emb(phn, phn_lengths) + spk_emb
         # text enc
-        txt_embeded = self.txt_emb(txt, torch.ne(txt, 0))[0].detach() if self.bert_detach else \
-        self.txt_emb(txt, torch.ne(txt, 0))[0]
+        txt_embeded = (self.txt_emb(txt, torch.ne(txt, 0))[0].detach() if self.bert_detach else \
+        self.txt_emb(txt, torch.ne(txt, 0))[0])
         if self.punc_context:
             txt_embeded = self.txt_context(txt_embeded.transpose(1, 2)).transpose(1, 2)
         txt_embeded = self.skipbymask(txt_embeded, txt2sub)
@@ -1935,7 +1936,7 @@ class SynthesizerTrn(nn.Module):
 
         s_slice, ids_slice = commons.rand_slice_segments(s, y_lengths, self.segment_size)
 
-        o = self.frame2wav(s_slice)
+        o = self.frame2wav(s_slice, g=g)
 
         return o, ids_slice, torch.mean(kl_sent), torch.mean(kl_word), torch.mean(kl_subword), torch.mean(
             kl_phn), torch.mean(kl_frame), d_loss
@@ -2144,11 +2145,12 @@ class SynthesizerTrn(nn.Module):
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
             g = None
+        spk_emb = self.cond(g)
 
-        phn_embeded = self.phn_emb(phn, phn_lengths)
+        phn_embeded = self.phn_emb(phn, phn_lengths) + spk_emb
         # text enc
-        txt_embeded = self.txt_emb(txt, torch.ne(txt, 0))[0].detach() if self.bert_detach else \
-        self.txt_emb(txt, torch.ne(txt, 0))[0]
+        txt_embeded = (self.txt_emb(txt, torch.ne(txt, 0))[0].detach() if self.bert_detach else \
+        self.txt_emb(txt, torch.ne(txt, 0))[0])
         if self.punc_context:
             txt_embeded = self.txt_context(txt_embeded.transpose(1, 2)).transpose(1, 2)
         txt_embeded = self.skipbymask(txt_embeded, txt2sub)
@@ -2226,7 +2228,7 @@ class SynthesizerTrn(nn.Module):
         # o = self.out(s)
         # frame2wav
         s = self.frame2wav_comb(s, z_frame)
-        o = self.frame2wav.inference(s)
+        o = self.frame2wav.inference(s, g=g)
 
         return o
 
