@@ -50,32 +50,39 @@ def load_checkpoint_part(checkpoint_path, model, optimizer=None):
   return model, optimizer, learning_rate, iteration
 
 
-def load_checkpoint(checkpoint_path, model, optimizer=None):
-  assert os.path.isfile(checkpoint_path)
-  checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
-  iteration = checkpoint_dict['iteration']
-  learning_rate = checkpoint_dict['learning_rate']
-  if optimizer is not None:
-    optimizer.load_state_dict(checkpoint_dict['optimizer'])
-  saved_state_dict = checkpoint_dict['model']
-  if hasattr(model, 'module'):
-    state_dict = model.module.state_dict()
-  else:
-    state_dict = model.state_dict()
-  new_state_dict= {}
-  for k, v in state_dict.items():
-    if True:
-      new_state_dict[k] = saved_state_dict[k]
+
+def load_checkpoint(checkpoint_path, model, optimizer=None, skip_optimizer=False):
+    assert os.path.isfile(checkpoint_path)
+    checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
+    iteration = checkpoint_dict['iteration']
+    learning_rate = checkpoint_dict['learning_rate']
+    if optimizer is not None and not skip_optimizer and checkpoint_dict['optimizer'] is not None:
+        optimizer.load_state_dict(checkpoint_dict['optimizer'])
+    saved_state_dict = checkpoint_dict['model']
+    if hasattr(model, 'module'):
+        state_dict = model.module.state_dict()
     else:
-      logger.info("%s is not in the checkpoint" % k)
-      new_state_dict[k] = v
-  if hasattr(model, 'module'):
-    model.module.load_state_dict(new_state_dict)
-  else:
-    model.load_state_dict(new_state_dict)
-  logger.info("Loaded checkpoint '{}' (iteration {})" .format(
-    checkpoint_path, iteration))
-  return model, optimizer, learning_rate, iteration
+        state_dict = model.state_dict()
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        try:
+            # assert "dec" in k or "disc" in k
+            # print("load", k)
+            new_state_dict[k] = saved_state_dict[k]
+            assert saved_state_dict[k].shape == v.shape, (saved_state_dict[k].shape, v.shape)
+            assert not torch.isnan(saved_state_dict[k]).any()
+        except:
+            print("error, %s is not in the checkpoint" % k)
+            logger.info("%s is not in the checkpoint" % k)
+            new_state_dict[k] = v
+    if hasattr(model, 'module'):
+        model.module.load_state_dict(new_state_dict)
+    else:
+        model.load_state_dict(new_state_dict)
+    print("load ")
+    logger.info("Loaded checkpoint '{}' (iteration {})".format(
+        checkpoint_path, iteration))
+    return model, optimizer, learning_rate, iteration
 
 
 def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path):

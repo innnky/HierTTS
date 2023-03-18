@@ -160,10 +160,17 @@ def get_alignment_word_boundary(tier, word_tier,sp_position, sampling_rate, hop_
             if word_pos not in sp_position:
                 durations[-1] += int(s * sampling_rate / hop_length) - int(last_e * sampling_rate / hop_length)
             else:
+                sp_dur = int(s * sampling_rate / hop_length) - int(last_e * sampling_rate / hop_length)
+                # print(sp_dur)
+
                 used_sp_position.append(word_pos)
                 phones.append('$')
                 pros_phones.append('$')
-                durations.append(int(s * sampling_rate / hop_length) - int(last_e * sampling_rate / hop_length))
+                if sp_dur > 5:
+                    durations[-1] += (sp_dur-5)
+                    durations.append(5)
+                else:
+                    durations.append(sp_dur)
 
 
         if p not in sil_phones:

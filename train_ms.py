@@ -104,7 +104,7 @@ def run(rank, n_gpus, hps):
     if rank == 0:
         eval_dataset = TextAudioSpeakerLoader(hps.data.data_path, 'val.txt', hps.data.speakerlist, hps.data)
         eval_loader = DataLoader(eval_dataset, num_workers=1, shuffle=False,
-                                 batch_size=2, pin_memory=True,
+                                 batch_size=1, pin_memory=True,
                                  drop_last=False, collate_fn=collate_fn)
 
     net_g = SynthesizerTrn(
@@ -138,17 +138,20 @@ def run(rank, n_gpus, hps):
     # epoch_str = 1
     # global_step = 0
 
+    skip_optimizer = True
     try:
         _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "G_*.pth"), net_g,
-                                                   optim_g)
+                                                   optim_g, skip_optimizer)
         _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "D_*.pth"), net_d,
-                                                   optim_d)
-        print(epoch_str)
-        print('1111111111111111111111')
-        # epoch_str = 1
+                                                   optim_d, skip_optimizer)
+        epoch_str = max(epoch_str, 1)
         global_step = (epoch_str - 1) * len(train_loader)
     except:
-        print('222222222222')
+        print("load old checkpoint failed...")
+        epoch_str = 1
+        global_step = 0
+        assert not skip_optimizer
+    if skip_optimizer:
         epoch_str = 1
         global_step = 0
 
@@ -347,6 +350,8 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
 def evaluate(hps, generator, eval_loader, writer_eval):
     global global_save_gt
     generator.eval()
+    image_dict = {}
+    audio_dict = {}
     with torch.no_grad():
         for batch_idx, (
         x, x_lengths, spec, spec_lengths, y, y_lengths, speakers, d_target_m, d_target_e, p_target, e_target, log_D,
@@ -377,38 +382,37 @@ def evaluate(hps, generator, eval_loader, writer_eval):
             sub2phn_e = sub2phn_e.cuda(rank, non_blocking=True)
             word2sub_e = word2sub_e.cuda(rank, non_blocking=True)
             sent2word_e = sent2word_e.cuda(rank, non_blocking=True)
-            break
-        y_hat = generator.module.infer(x, x_lengths, txt, txt_len, txt2sub, speakers, None, None, sub2phn_m, sub2phn_e,
-                                       word2sub_m, word2sub_e, sent2word_m, sent2word_e, word_len, sub2sub, sub_len)
+            y_hat = generator.module.infer(x, x_lengths, txt, txt_len, txt2sub, speakers, None, None, sub2phn_m, sub2phn_e,
+                                           word2sub_m, word2sub_e, sent2word_m, sent2word_e, word_len, sub2sub, sub_len)
 
-        mel = spec_to_mel_torch(
-            spec,
-            hps.data.filter_length,
-            hps.data.n_mel_channels,
-            hps.data.sampling_rate,
-            hps.data.mel_fmin,
-            hps.data.mel_fmax)
-        y_hat_mel = mel_spectrogram_torch(
-            y_hat.squeeze(1).float(),
-            hps.data.filter_length,
-            hps.data.n_mel_channels,
-            hps.data.sampling_rate,
-            hps.data.hop_length,
-            hps.data.win_length,
-            hps.data.mel_fmin,
-            hps.data.mel_fmax
-        )
-    image_dict = {
-        "gen/mel": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy())
-    }
-    audio_dict = {
-        "gen/audio": y_hat[0, :, :]
-    }
+            mel = spec_to_mel_torch(
+                spec,
+                hps.data.filter_length,
+                hps.data.n_mel_channels,
+                hps.data.sampling_rate,
+                hps.data.mel_fmin,
+                hps.data.mel_fmax)
+            y_hat_mel = mel_spectrogram_torch(
+                y_hat.squeeze(1).float(),
+                hps.data.filter_length,
+                hps.data.n_mel_channels,
+                hps.data.sampling_rate,
+                hps.data.hop_length,
+                hps.data.win_length,
+                hps.data.mel_fmin,
+                hps.data.mel_fmax
+            )
+            image_dict.update({
+                f"gen/mel_{batch_idx}": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy())
+            })
+            audio_dict.update({
+                f"gen/audio_{batch_idx}": y_hat[0, :, :]
+            })
 
-    if global_save_gt:
-        image_dict.update({"gt/mel": utils.plot_spectrogram_to_numpy(mel[0].cpu().numpy())})
-        audio_dict.update({"gt/audio": y[0, :, :y_lengths[0]]})
-        global_save_gt = False
+            if global_save_gt:
+                image_dict.update({f"gt/mel_{batch_idx}": utils.plot_spectrogram_to_numpy(mel[0].cpu().numpy())})
+                audio_dict.update({f"gt/audio_{batch_idx}": y[0, :, :y_lengths[0]]})
+    global_save_gt = False
 
     utils.summarize(
         writer=writer_eval,

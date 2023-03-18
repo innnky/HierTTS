@@ -81,6 +81,6 @@ def _should_keep_symbol(s):
     return s in _symbol_to_id and s is not '_' and s is not '~'
 
 
-sequence = text_to_sequence("{zh e4 m ei2 ii iu3 uu uang2 f a3 l e5} {b a3 uu ua2 zh en1 z ao1 t a4}", [])
-print(sequence)
-print(symbols[:10])
+# sequence = text_to_sequence("{zh e4 m ei2 ii iu3 uu uang2 f a3 l e5} {b a3 uu ua2 zh en1 z ao1 t a4}", [])
+# print(sequence)
+# print(symbols[:10])
