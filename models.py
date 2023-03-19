@@ -899,23 +899,22 @@ class GaussProj(nn.Module):
 
         self.out_channels = out_channels
         self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
-        self.softplus = CustomSoftplus()
 
     def forward(self, x, x_mask=None, temp=1):
         stats = self.proj(x)
         m, logs = torch.split(stats, self.out_channels, dim=1)
         if x_mask is not None:
-            return m * x_mask, self.softplus(logs) * x_mask
+            return m * x_mask, F.softplus(logs) * x_mask
         else:
-            return m, self.softplus(logs)
+            return m, F.softplus(logs)
 
     def infer(self, x, x_mask=None, temp=1):
         stats = self.proj(x)
         m, logs = torch.split(stats, self.out_channels, dim=1)
         if x_mask is not None:
-            return m * x_mask, torch.log(1 + torch.exp(logs)) * x_mask
+            return m * x_mask, F.softplus(logs) * x_mask
         else:
-            return m, torch.log(1 + torch.exp(logs))
+            return m, F.softplus(logs)
 
 
 class KernelPredictor(torch.nn.Module):
