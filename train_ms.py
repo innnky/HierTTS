@@ -138,7 +138,7 @@ def run(rank, n_gpus, hps):
     # epoch_str = 1
     # global_step = 0
 
-    skip_optimizer = True
+    skip_optimizer = False
     try:
         _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "G_*.pth"), net_g,
                                                    optim_g, skip_optimizer)
@@ -216,17 +216,16 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
 
         kl_coeff = utils.kl_coeff(global_step, hps.train.total_step, hps.train.constant_step, hps.train.kl_const_coeff)
         kl_coeff = 1
-
-        # frame_kl = anneal_weight(55000, 60000, hps.train.frame_kl, hps.train.frame_kl_e, global_step)
-        # phn_kl = anneal_weight(60000, 63000, hps.train.phn_kl, hps.train.phn_kl_e, global_step)
-        # subword_kl = anneal_weight(63000, 66000, hps.train.subword_kl, hps.train.subword_kl_e, global_step)
-        # word_kl = anneal_weight(66000, 68000, hps.train.word_kl, hps.train.word_kl_e, global_step)
-        # sent_kl = anneal_weight(68000, 70000, hps.train.sent_kl, hps.train.sent_kl_e, global_step)
+        # frame_kl = anneal_weight(26000, 31000, hps.train.frame_kl, hps.train.frame_kl_e, global_step)
+        phn_kl = anneal_weight(22000, 27000, hps.train.phn_kl, hps.train.phn_kl_e, global_step)
+        subword_kl = anneal_weight(27000, 32000, hps.train.subword_kl, hps.train.subword_kl_e, global_step)
+        word_kl = anneal_weight(32000, 37000, hps.train.word_kl, hps.train.word_kl_e, global_step)
+        sent_kl = anneal_weight(37000, 42000, hps.train.sent_kl, hps.train.sent_kl_e, global_step)
         frame_kl = hps.train.frame_kl
-        phn_kl = hps.train.phn_kl
-        subword_kl = hps.train.subword_kl
-        word_kl = hps.train.word_kl
-        sent_kl = hps.train.sent_kl
+        # phn_kl = hps.train.phn_kl
+        # subword_kl = hps.train.subword_kl
+        # word_kl = hps.train.word_kl
+        # sent_kl = hps.train.sent_kl
         # print(x)
         # print(names)
         with autocast(enabled=hps.train.fp16_run):
@@ -320,7 +319,14 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                 scalar_dict = {"loss/g/total": loss_gen_all, "loss/d/total": loss_disc_all, "learning_rate": lr,
                                "grad_norm_d": grad_norm_d, "grad_norm_g": grad_norm_g}
                 scalar_dict.update(
-                    {"loss/g/mel": loss_mel})
+                    {
+                        "loss/g/mel": loss_mel,
+                        "loss/g/kl_sent": kl_sent*sent_kl,
+                        "loss/g/kl_word": kl_word*word_kl,
+                        "loss/g/kl_subword": kl_subword*subword_kl,
+                        "loss/g/phn_kl": kl_phn*phn_kl,
+                        "loss/g/kl_frame": kl_frame*frame_kl,
+                     })
 
                 image_dict = {
                     "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
