@@ -11,7 +11,8 @@ import tgt
 from preprocessors.utils import get_alignment_word_boundary
 
 from text.symbols import symbols
-from text.zh_frontend import get_seg
+# from text.zh_frontend import get_seg
+from text.prosody import get_seg
 # print(symbols)
 # preprocessed_out_path = "norm_preprocessed_hifi16_bert/"
 preprocessed_out_path = "/Volumes/Extend/下载/biaobei"
