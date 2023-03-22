@@ -1,146 +1,171 @@
-#import matplotlib.pyplot as plt
-#import IPython.display as ipd
-import argparse
+import re
 
-import os
-import json
-import math
+import numpy as np
+import soundfile
 import torch
-from torch import nn
-from torch.nn import functional as F
-from torch.utils.data import DataLoader
 
-import commons
 import utils
 from models import SynthesizerTrn
-from text.symbols import symbols
-from text import text_to_sequence
-import numpy as np
-from scipy.io.wavfile import write
+from text import symbols, text_to_sequence
+from text.zh_frontend import zh_to_pinyin, get_seg, get_sentence_positions, is_chinese_character
 
-#from text.codeswitch import CodeSwitchGen, SpanishEnglishG2P
-from preprocessors.utils import language_mapping
-from string import punctuation
-import librosa
-#from resemblyzer import preprocess_wav
-from mel_processing import spectrogram_torch
+hps = utils.get_hparams_from_file("/Volumes/Extend/下载/config (3).json")
 
-from data_utils import (
-  TextAudioSpeakerLoader,
-  DistributedBucketSampler
-)
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-def get_text(text, hps):
-    text_norm = text_to_sequence(text, hps.data.text_cleaners)
-    if hps.data.add_blank:
-        text_norm = commons.intersperse(text_norm, 0)
-    text_norm = torch.LongTensor(text_norm)
-    return text_norm
-
-def preprocess_text(text, src_language='English', tgt_language='Spanish'):
-    text = text.rstrip(punctuation)
-    print('Loading resource...')
-    Augment = CodeSwitchGen(0.0, src_language=src_language, tgt_language=tgt_language)
-    print('Loading done!')
-
-    aug_text, phones = Augment.cross_list(text, language_mapping[src_language], language_mapping[tgt_language])
-
-    print("Raw Text Sequence: {}".format(text))
-    print("Codeswitch Text Sequence: {}".format(aug_text))
-    print("Phoneme Sequence: {}".format(phones))
-    sequence = np.array(text_to_sequence(phones, ['english_cleaners']))
-
-    return torch.from_numpy(sequence)#.to(device=device)
-
-def preprocess_audio(audio_file, hps):
-    wav, sample_rate = librosa.load(audio_file, sr=None)
-    if sample_rate != 16000:
-        wav = librosa.resample(wav, sample_rate, 16000)
-    wav = preprocess_wav(wav)
-    spec = spectrogram_torch(torch.from_numpy(wav), hps.data.filter_length,
-        hps.data.sampling_rate, hps.data.hop_length, hps.data.win_length,
-        center=False)
-    return spec#.to(device=device)
-
-def get_model(hps, args):
-    net_g = SynthesizerTrn(
+net_g = SynthesizerTrn(
         len(symbols),
         hps.data.filter_length // 2 + 1,
         hps.train.segment_size // hps.data.hop_length,
         n_speakers=hps.data.n_speakers,
         **hps.model,
-        config=hps.config)#.cuda()
-    _ = net_g.eval()
+        config=hps.config)
 
-    _ = utils.load_checkpoint(args.checkpoint_path, net_g, None)
-    return net_g
-
-def synthesize(args, model, hps):
-    save_path = args.save_path
-    if not os.path.exists(save_path):
-        os.makedirs(save_path, exist_ok=True)
-
-    #for i in range(len(open(hps.data.speakerlist,'r').readlines()))[:1]:
-    for i in range(1):
-        eval_dataset = TextAudioSpeakerLoader(hps.data.data_path, args.txt, hps.data.speakerlist, hps.data)
-        collate_fn = eval_dataset.collate_fn
-        eval_loader = DataLoader(eval_dataset, num_workers=1, shuffle=False,
-            batch_size=1, pin_memory=True,
-            drop_last=False, collate_fn=collate_fn)
+utils.load_checkpoint("/Volumes/Extend/下载/G_97000.pth", net_g)
 
 
-        count = [0]*len(hps.data.speakerlist)
-        for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths, speakers, d_target_m, d_target_e, p_target, e_target, log_D, txt2sub, sub2phn_m, sub2phn_e, txt, txt_len, word2sub_m, word2sub_e, word_len, sub2sub, sub_len, _, sent2word_m, sent2word_e) in enumerate(eval_loader):
-            '''
-            x, x_lengths = x.cuda(0), x_lengths.cuda(0)
-            spec, spec_lengths = spec.cuda(0), spec_lengths.cuda(0)
-            y, y_lengths = y.cuda(0), y_lengths.cuda(0)
-            speakers = speakers.cuda(0)
-            d_target = d_target.cuda(0)
-            p_target = p_target.cuda()
-            e_target = e_target.cuda()
-            '''
-
-            if args.analysis:
-                sid = torch.LongTensor([i])#.cuda()
-                audios = model.analysis(x, x_lengths,  txt, txt_len, txt2sub, sid, d_target_m, d_target_e, sub2phn_m, sub2phn_e,  word2sub_m, word2sub_e, sent2word_m, sent2word_e, word_len, sub2sub, sub_len)
-                for key in audios.keys():
-                    audio = audios[key][0,0].data.float().numpy()
-                    data = (audio+1)/2*65525. - 32768
-                    data = data.astype(np.int16)
-                    write(os.path.join(save_path,'transfer.tim_{}_sty_{}_utt_{}_key_{}.wav'.format(str(i),str(speakers[0].item()),count[speakers[0].item()], key)), hps.data.sampling_rate, data)
-                count[speakers[0].item()]+=1
-                break
-            else:
-                sid = torch.LongTensor([i])#.cuda()
-                audio = model.infer(x, x_lengths,  txt, txt_len, txt2sub, sid, None, None, sub2phn_m, sub2phn_e,  word2sub_m, word2sub_e, sent2word_m, sent2word_e, word_len, sub2sub, sub_len)[0,0].data.float().numpy()
-
-                data = (audio+1)/2*65525. - 32768
-                data = data.astype(np.int16)
-                write(os.path.join(save_path,'transfer.tim_{}_sty_{}_utt_{}.wav'.format(str(i),str(speakers[0].item()),count[speakers[0].item()])), hps.data.sampling_rate, data)
-                count[speakers[0].item()]+=1
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint_path", type=str, default='exp_stylespeech_wav2vec/ckpt/checkpoint_480000.pth.tar',
-        help="Path to the pretrained model")
-    parser.add_argument('--config', default='configs/config_wav2vec.json')
-    parser.add_argument("--save_path", type=str, default='results/')
-    parser.add_argument("--analysis", type=bool, default=False,
-        help="switch")
-    parser.add_argument("--txt", type=str, default='sub1.txt',
-        help="txt")
-    args = parser.parse_args()
-
-    hps = utils.get_hparams_from_file(args.config)
+zh_dict = [i.strip() for i in open("text/zh_dict2.dict").readlines()]
+zh_dict = {i.split("\t")[0]: i.split("\t")[1] for i in zh_dict}
 
 
-    # Get model
-    model = get_model(hps, args)
-    print('model is prepared')
+text = "人工智能是计算机科学的一个分支，它企图了解智能的实质，并生产出一种新的能以人类智能相似的方式做出反应的智能机器，该领域的研究包括机器人、语言识别、图像识别、自然语言处理和专家系统等。人工智能从诞生以来，理论和技术日益成熟，应用领域也不断扩大，可以设想，未来人工智能带来的科技产品，将会是人类智慧的“容器”。人工智能可以对人的意识、思维的信息过程的模拟。人工智能不是人的智能，但能像人那样思考、也可能超过人的智能。"
+
+segments = get_seg(text)
+clean_txt = ''
+for pair in segments:
+        clean_txt += pair.word
+seg_txt = "#1".join([p.word for p in segments])
+clean_txt = clean_txt.replace("…", "...").replace("—", "-")
+
+sp_position = get_sentence_positions(clean_txt)
 
 
-    # Synthesize
-    synthesize(args, model, hps)
+pinyin = zh_to_pinyin(text)
+phones = []
+pros_phones = []
+for idx, p in enumerate(pinyin.split(" ")):
+        if p in zh_dict.keys():
+                phones += zh_dict[p].split(" ")
+                pros_phones += zh_dict[p].split(" ")
+                pros_phones.append('^')
+                if idx+1 in sp_position:
+                        phones.append("$")
+                        pros_phones.append("$")
+encoding_txt =["[CLS]"]+ [ch for ch in clean_txt] +["[SEP]"]
+bert_encodings = {line.strip():idx for idx, line in enumerate(open("tiny_bert/vocab.txt").readlines())}
+
+try:
+    encoding = [bert_encodings[i] for i in encoding_txt]
+except:
+    print(clean_txt)
+sub = ''
+txt2sub = []
+idx = 0
+for ch in encoding_txt:
+
+    if is_chinese_character(ch):
+        idx+=1
+        sub += ch
+        txt2sub.append(1)
+        if idx in sp_position:
+            sub += '.'
+    else:
+        txt2sub.append(0)
+
+sub2sub = []
+idx = 0
+for ch in sub:
+    if ch != ".":
+        sub2sub.append(idx)
+        idx += 1
+    else:
+        sub2sub.append(-1)
+
+sub2phn = []
+ph_count = 0
+for ph in pros_phones:
+    if ph =="^":
+        sub2phn.append(ph_count)
+        ph_count = 0
+    elif ph =="$":
+        assert ph_count==0
+        sub2phn.append(1)
+    else:
+        ph_count += 1
+if  len(sub2phn) != len(sub) or sum(sub2phn) != len(phones):
+    print("skip", phones)
+word2sub = []
+idx = 0
+for pair in segments:
+    if bool(re.match(r'^[\u4e00-\u9fa5]+$', pair.word)):
+        word2sub.append(len(pair.word))
+        idx += len(pair.word)
+        if idx in sp_position:
+            word2sub.append(1)
+if sum(word2sub) != len(sub):
+    print("skip",phones)
+
+outline = []
+outline.append(" ".join(["{" + i.strip() + "}" for i in " ".join(phones).split('$')])) #0
+outline.append(("{" + " ".join(pros_phones) + "}").replace("^", "1").replace("$ ", ""))#1
+outline.append(" ".join(["1" for i in range(len(phones))]))#2
+outline.append(seg_txt)#3
+outline.append(clean_txt)#4
+outline.append(" ".join([str(i) for i in txt2sub]))#5
+outline.append(" ".join([str(i) for i in sub2phn]))#6
+outline.append(" ".join([str(i) for i in encoding]))#7
+outline.append(" ".join([i for i in encoding_txt]))#8
+outline.append(" ".join([str(i) for i in word2sub]))#9
+outline.append(" ".join(["1" for i in word2sub]))#10
+outline.append(" ".join([str(i) for i in sub2sub]))#11
+print("\n".join(outline))
+
+
+
+
+
+x = torch.LongTensor(np.array(text_to_sequence(outline[0], []))).unsqueeze(0)
+x_lengths = torch.LongTensor([x.shape[0]])
+txt = torch.LongTensor(np.array(encoding)).unsqueeze(0)
+txt2sub = torch.LongTensor(np.array(txt2sub)).unsqueeze(0)
+sub2sub = torch.LongTensor(np.array(sub2sub)).unsqueeze(0)
+
+sub2phn_m, sub2phn_e = utils.ali_mask([np.array(sub2phn)])
+sub2phn_m =  torch.BoolTensor(sub2phn_m)
+sub2phn_e = torch.LongTensor(sub2phn_e)
+word2sub_m, word2sub_e = utils.ali_mask([np.array(word2sub)])
+word2sub_m =  torch.BoolTensor(word2sub_m)
+word2sub_e = torch.LongTensor(word2sub_e)
+speakers = torch.LongTensor([0])
+
+length_word = np.array(list())
+for w2s in [np.array(word2sub)]:
+    length_word = np.append(length_word, w2s.shape[0])
+subword_len = np.array(list())
+for s2s in [np.array(sub2sub)]:
+    subword_len = np.append(subword_len, s2s.shape[0])
+
+sent2word_m, sent2word_e = utils.ali_mask([[int(x)] for x in length_word])
+sent2word_m =  torch.BoolTensor(sent2word_m)
+sent2word_e = torch.LongTensor(sent2word_e)
+
+sub_len = torch.LongTensor(subword_len)
+length_word = torch.LongTensor(length_word)
+# txt, txt_lengths = txt.cuda(rank, non_blocking=True), txt_len.cuda(rank, non_blocking=True)
+# txt2sub = txt2sub.cuda(rank, non_blocking=True)
+# sub2sub = sub2sub.cuda(rank, non_blocking=True)
+# sub_len = sub_len.cuda(rank, non_blocking=True)
+#
+# speakers = speakers.cuda(rank, non_blocking=True)
+#
+#
+# sub2phn_m = sub2phn_m.cuda(rank, non_blocking=True)
+# word2sub_m = word2sub_m.cuda(rank, non_blocking=True)
+# sent2word_m = sent2word_m.cuda(rank, non_blocking=True)
+#
+# sub2phn_e = sub2phn_e.cuda(rank, non_blocking=True)
+# word2sub_e = word2sub_e.cuda(rank, non_blocking=True)
+# sent2word_e = sent2word_e.cuda(rank, non_blocking=True)
+with torch.no_grad():
+    y_hat = net_g.infer(x, x_lengths, txt, None, txt2sub, speakers, None, None, sub2phn_m, sub2phn_e,
+                                   word2sub_m, word2sub_e, sent2word_m, sent2word_e, None, sub2sub, sub_len)
+print(y_hat.shape)
+soundfile.write("out2.wav", y_hat[0,0,:].numpy(),  16000)

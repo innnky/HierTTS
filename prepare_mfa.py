@@ -5,44 +5,17 @@ import librosa
 import soundfile
 import tqdm
 from multiprocessing import Pool
-from text.zh_frontend import zh_to_phonemes
+from text.zh_frontend import zh_to_pinyin
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import tqdm
 from multiprocessing import cpu_count
 
-zh_dict = [i.strip() for i in open("text/zh_dict.dict").readlines()]
-zh_dict = {i.split("\t")[0]: i.split("\t")[1] for i in zh_dict}
-
-reversed_zh_dict = {}
-all_zh_phones = set()
-for k, v in zh_dict.items():
-    reversed_zh_dict[v] = k
-    [all_zh_phones.add(i) for i in v.split(" ")]
-
-# print(all_zh_phones)
-
-def phones_to_pinyins(phones):
-    pinyins = ''
-    accu_ph = []
-    for ph in phones:
-        accu_ph.append(ph)
-        if ph not in all_zh_phones:
-            # print(ph)
-            assert len(accu_ph) == 1
-            # pinyins += ph
-            accu_ph = []
-        elif " ".join(accu_ph) in reversed_zh_dict.keys():
-            pinyins += " " + reversed_zh_dict[" ".join(accu_ph)]
-            accu_ph = []
-    assert  accu_ph==[]
-    return pinyins.strip()
 # print(phones_to_pinyins(['n', 'i2', 'uang3', 'n', 'a3', 'r5', 'r5', 'z', 'ou3', 'ia5']))
 
 def process_text(line):
     id_, text = line.strip().split("|")
-    phones = zh_to_phonemes(text)
-    phones = phones_to_pinyins(phones)
+    phones = zh_to_pinyin(text)
     # phones = phones.replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("…", "").replace("#", "")
     return (id_, phones)
 

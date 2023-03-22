@@ -14,7 +14,6 @@ from text import symbols
 from submodules import get_sinusoid_encoding_table, ConvNorm, LinearNorm, MultiHeadAttention, Mish
 import Constants as Constants
 import torch.distributions as D
-import torchaudio
 # from hier_att import AttentionRNN_bkp as AttentionRNN
 from hier_att import AttentionRNN
 from transformers import BertModel
@@ -766,92 +765,6 @@ class Fp32LayerNorm(nn.LayerNorm):
         )
         return output.type_as(input)
 
-
-class ConvFeatureExtractionModel(nn.Module):
-    def __init__(
-            self,
-            in_d: int,
-            conv_layers: List[Tuple[int, int, int]],
-            dropout: float = 0.0,
-            mode: str = "default",
-            conv_bias: bool = False
-    ):
-        super().__init__()
-
-        assert mode in {"default", "layer_norm"}
-
-        def block(
-                n_in,
-                n_out,
-                k,
-                stride,
-                is_layer_norm=False,
-                is_group_norm=False,
-                conv_bias=False,
-                sample_rate=16000
-        ):
-            def make_conv():
-                conv = nn.Conv1d(n_in, n_out, k, stride=1, bias=conv_bias, padding=(k - 1) // 2)
-                nn.init.kaiming_normal_(conv.weight)
-                return conv
-
-            def make_lowpass():
-                lowpass = torchaudio.transforms.Resample(sample_rate, sample_rate // stride,
-                                                         resampling_method='sinc_interpolation')
-                # for param in lowpass.parameters():
-                #  param.requires_grad = False
-                return lowpass
-
-            assert (
-                           is_layer_norm and is_group_norm
-                   ) == False, "layer norm and group norm are exclusive"
-
-            if is_layer_norm:
-                return nn.Sequential(
-                    make_conv(),
-                    nn.Dropout(p=dropout),
-                    nn.Sequential(
-                        TransposeLast(),
-                        Fp32LayerNorm(dim, elementwise_affine=True),
-                        TransposeLast(),
-                    ),
-                    nn.GELU(),
-                )
-            elif is_group_norm:
-                return nn.Sequential(
-                    make_conv(),
-                    nn.Dropout(p=dropout),
-                    Fp32GroupNorm(dim, dim, affine=True),
-                    nn.GELU(),
-                )
-            else:
-                return nn.Sequential(make_conv(), nn.Dropout(p=dropout), make_lowpass(), nn.GELU())
-
-        self.conv_layers = nn.ModuleList()
-        for i, cl in enumerate(conv_layers):
-            assert len(cl) == 4, "invalid conv definition: " + str(cl)
-            (dim, k, stride, sample_rate) = cl
-
-            self.conv_layers.append(
-                block(
-                    in_d,
-                    dim,
-                    k,
-                    stride,
-                    is_layer_norm=mode == "layer_norm",
-                    is_group_norm=mode == "default" and i == 0,
-                    conv_bias=conv_bias,
-                    sample_rate=sample_rate
-                )
-            )
-            in_d = dim
-
-    def forward(self, x):
-        # BxT -> BxCxT
-        for conv in self.conv_layers:
-            x = conv(x)
-
-        return x
 
 
 def get_pad_layer_1d(pad_type):
