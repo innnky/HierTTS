@@ -24,7 +24,7 @@ from data_utils import (
 )
 from models import (
     SynthesizerTrn,
-    Discriminator,
+    Discriminator, MultiPeriodDiscriminator,
 )
 from losses import (
     generator_loss,
@@ -114,7 +114,7 @@ def run(rank, n_gpus, hps):
         n_speakers=hps.data.n_speakers,
         **hps.model,
         config=hps.config).cuda(rank)
-    net_d = Discriminator(hps.discriminator).cuda(rank)
+    net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm).cuda(rank)
     resolutions = eval(hps.discriminator.mrd.resolutions)
     stft_criterion = MultiResolutionSTFTLoss(torch.device('cuda', rank), resolutions)
 
@@ -258,13 +258,11 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
             loss_mel = F.l1_loss(y_mel, y_hat_mel)  # * hps.train.c_mel
             sc_loss, mag_loss = stft_criterion(y_hat.squeeze(1).to(torch.float32), y.squeeze(1))
             loss_stft = (sc_loss + mag_loss) * hps.train.stft_lamb
-            res_fake, period_fake = net_d(y_hat)
+            y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = net_d(y, y_hat)
             with autocast(enabled=False):
-                score_loss = 0.0
-                for (_, score_fake) in res_fake + period_fake:
-                    score_loss += torch.mean(torch.pow(score_fake - 1.0, 2))
-                loss_gen = score_loss / len(res_fake + period_fake)
-                loss_gen_all = loss_gen + loss_stft + D_loss
+                loss_fm = feature_loss(fmap_r, fmap_g)
+                loss_gen, losses_gen = generator_loss(y_d_hat_g)
+                loss_gen_all = loss_gen + loss_stft + D_loss + loss_fm
                 loss_gen_all = loss_gen_all + kl_coeff * (free_bit(kl_sent, 0.0) * sent_kl + \
                                                           free_bit(kl_word, 0.0) * word_kl + \
                                                           free_bit(kl_subword, 0.0) * subword_kl + \
@@ -282,16 +280,11 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
 
         with autocast(enabled=hps.train.fp16_run):
             # Discriminator
-            res_fake, period_fake = net_d(y_hat.detach())
-            res_real, period_real = net_d(y)
+            y_d_hat_r, y_d_hat_g, _, _ = net_d(y, y_hat.detach())
 
             with autocast(enabled=False):
-                loss_d = 0.0
-                for (_, score_fake), (_, score_real) in zip(res_fake + period_fake, res_real + period_real):
-                    loss_d += torch.mean(torch.pow(score_real - 1.0, 2))
-                    loss_d += torch.mean(torch.pow(score_fake, 2))
-
-                loss_disc_all = loss_d / len(res_fake + period_fake)
+                loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
+                loss_disc_all = loss_disc
 
         optim_d.zero_grad()
         if not torch.any(torch.isnan(loss_disc_all)):
