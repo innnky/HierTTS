@@ -1257,22 +1257,16 @@ class ResBlock3(nn.Module):
 class Generator_hifi(torch.nn.Module):
     def __init__(self, h):
         super(Generator_hifi, self).__init__()
-        self.h = h
         self.num_kernels = len(h.resblock_kernel_sizes)
         self.num_upsamples = len(h.upsample_rates)
-        self.conv_pre = weight_norm(Conv1d(192, h.upsample_initial_channel, 7, 1, padding=3))
-        if h.resblock == '1':
-            resblock = ResBlock1
-        elif h.resblock == '2':
-            resblock = ResBlock2
-        else:
-            resblock = ResBlock3
+        self.conv_pre = Conv1d(192, h.upsample_initial_channel, 7, 1, padding=3)
+        resblock = ResBlock1 if h.resblock == '1' else ResBlock2
 
         self.ups = nn.ModuleList()
         for i, (u, k) in enumerate(zip(h.upsample_rates, h.upsample_kernel_sizes)):
             self.ups.append(weight_norm(
                 ConvTranspose1d(h.upsample_initial_channel // (2 ** i), h.upsample_initial_channel // (2 ** (i + 1)),
-                                k, u, padding=(u // 2 + u % 2), output_padding=u % 2)))
+                                k, u, padding=(k - u) // 2)))
 
         self.resblocks = nn.ModuleList()
         for i in range(len(self.ups)):
@@ -1280,47 +1274,32 @@ class Generator_hifi(torch.nn.Module):
             for j, (k, d) in enumerate(zip(h.resblock_kernel_sizes, h.resblock_dilation_sizes)):
                 self.resblocks.append(resblock(h, ch, k, d))
 
-        self.conv_post = weight_norm(Conv1d(ch, 4, 7, 1, padding=3))
+        self.conv_post = Conv1d(ch, 1, 7, 1, padding=3, bias=False)
         self.ups.apply(init_weights)
-        self.conv_post.apply(init_weights)
-        self.upsample_rates = h.upsample_rates
-        self.pqmf = PQMF()
 
-    def forward(self, x, mapping_layers=[]):
+        if h.gin_channels != 0:
+            self.cond = nn.Conv1d(h.gin_channels, h.upsample_initial_channel, 1)
 
-        ret_acts = {}
-
+    def forward(self, x, g=None):
         x = self.conv_pre(x)
+        if g is not None:
+            x = x + self.cond(g)
 
-        if 'pre' in mapping_layers:
-            ret_acts['pre'] = x
         for i in range(self.num_upsamples):
-
             x = F.leaky_relu(x, LRELU_SLOPE)
             x = self.ups[i](x)
             xs = None
             for j in range(self.num_kernels):
-                # xs_res = self.resblocks[i*self.num_kernels+j].inference(x)
-                xs_res = self.resblocks[i * self.num_kernels + j](x)
                 if xs is None:
-                    xs = xs_res
+                    xs = self.resblocks[i * self.num_kernels + j](x)
                 else:
-                    xs += xs_res
-                if 'res_{}_{}'.format(i, j) in mapping_layers:
-                    ret_acts['res_{}_{}'.format(i, j)] = xs_res
-                xs = F.leaky_relu(xs, LRELU_SLOPE)
-                # xs = F.leaky_relu(xs)
+                    xs += self.resblocks[i * self.num_kernels + j](x)
             x = xs / self.num_kernels
-            if 'up_{}'.format(i) in mapping_layers:
-                ret_acts['up_{}'.format(i)] = xs
-        # x = F.leaky_relu(x)
+        x = F.leaky_relu(x)
         x = self.conv_post(x)
         x = torch.tanh(x)
-        x = self.pqmf.synthesis(x)
-        if len(mapping_layers) == 0:
-            return x
-        else:
-            return x, ret_acts
+
+        return x
 
     def remove_weight_norm(self):
         print('Removing weight norm...')
@@ -1328,11 +1307,9 @@ class Generator_hifi(torch.nn.Module):
             remove_weight_norm(l)
         for l in self.resblocks:
             l.remove_weight_norm()
-        remove_weight_norm(self.conv_pre)
-        remove_weight_norm(self.conv_post)
 
-    def inference(self, c):
-        audio = self.forward(c)
+    def inference(self, c, g):
+        audio = self.forward(c, g=g)
         return audio
 
 
@@ -1632,8 +1609,8 @@ class SynthesizerTrn(nn.Module):
                                           gin_channels=gin_channels)
         self.wav2frame_comb = EncCombinerCell(config.decoder_hidden.phn2frame, hidden_channels, type=self.enc_comb)
         self.wav2frame_proj = GaussProj(hidden_channels, inter_channels.frame)
-        self.frame2wav = Generator(inter_channels.frame, gen, gin_channels)
-        # self.frame2wav = Generator_hifi(gen)
+        # self.frame2wav = Generator(inter_channels.frame, gen, gin_channels)
+        self.frame2wav = Generator_hifi(gen)
         self.frame2wav_comb = DecCombinerCell(config.decoder_hidden.phn2frame, inter_channels.frame,
                                               inter_channels.frame, self.dec_comb)
         if n_speakers > 1:

@@ -61,14 +61,17 @@
       "n_layers": 6,
       "kernel_size": 3,
       "p_dropout": 0.1,
-      "gen": {"noise_dim": 64,
-	      "channel_size": 32,
-	      "dilations": [1, 3, 9, 27],
-	      "strides": [10, 5, 4, 2],
-	      "lReLU_slope": 0.2,
-	      "kpnet_conv_size": 3,
-	      "hop_length": 400
-      },
+      "gen": {
+        "sampling_rate": 32000,
+        "inter_channels": 192,
+        "resblock": "1",
+        "resblock_kernel_sizes": [3, 7, 11],
+        "resblock_dilation_sizes": [[1, 3, 5], [1, 3, 5], [1, 3, 5]],
+        "upsample_rates": [10, 10, 2, 2],
+        "upsample_initial_channel": 512,
+        "upsample_kernel_sizes": [16, 16, 4, 4],
+        "gin_channels": 256
+    },
       "n_layers_q": 3,
       "use_spectral_norm": false,
       "gin_channels": 256
