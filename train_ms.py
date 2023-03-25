@@ -215,13 +215,13 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         sent2word_e = sent2word_e.cuda(rank, non_blocking=True)
 
         kl_coeff = utils.kl_coeff(global_step, hps.train.total_step, hps.train.constant_step, hps.train.kl_const_coeff)
-        kl_coeff = 1
-        # frame_kl = anneal_weight(26000, 31000, hps.train.frame_kl, hps.train.frame_kl_e, global_step)
-        phn_kl = anneal_weight(22000, 27000, hps.train.phn_kl, hps.train.phn_kl_e, global_step)
-        subword_kl = anneal_weight(27000, 32000, hps.train.subword_kl, hps.train.subword_kl_e, global_step)
-        word_kl = anneal_weight(32000, 37000, hps.train.word_kl, hps.train.word_kl_e, global_step)
-        sent_kl = anneal_weight(37000, 42000, hps.train.sent_kl, hps.train.sent_kl_e, global_step)
-        frame_kl = hps.train.frame_kl
+        # kl_coeff = 1
+        frame_kl = anneal_weight(55000, 60000, hps.train.frame_kl, hps.train.frame_kl_e, global_step)
+        phn_kl = anneal_weight(60000, 63000, hps.train.phn_kl, hps.train.phn_kl_e, global_step)
+        subword_kl = anneal_weight(63000, 66000, hps.train.subword_kl, hps.train.subword_kl_e, global_step)
+        word_kl = anneal_weight(66000, 68000, hps.train.word_kl, hps.train.word_kl_e, global_step)
+        sent_kl = anneal_weight(68000, 70000, hps.train.sent_kl, hps.train.sent_kl_e, global_step)
+        # frame_kl = hps.train.frame_kl
         # phn_kl = hps.train.phn_kl
         # subword_kl = hps.train.subword_kl
         # word_kl = hps.train.word_kl
@@ -321,11 +321,11 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                 scalar_dict.update(
                     {
                         "loss/g/mel": loss_mel,
-                        "loss/g/kl_sent": kl_sent*sent_kl,
-                        "loss/g/kl_word": kl_word*word_kl,
-                        "loss/g/kl_subword": kl_subword*subword_kl,
-                        "loss/g/phn_kl": kl_phn*phn_kl,
-                        "loss/g/kl_frame": kl_frame*frame_kl,
+                        "loss/g/kl_sent": kl_sent,
+                        "loss/g/kl_word": kl_word,
+                        "loss/g/kl_subword": kl_subword,
+                        "loss/g/phn_kl": kl_phn,
+                        "loss/g/kl_frame": kl_frame,
                      })
 
                 image_dict = {

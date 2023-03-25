@@ -1,3 +1,4 @@
+import os.path
 import re
 
 import numpy as np
@@ -9,7 +10,7 @@ from models import SynthesizerTrn
 from text import symbols, text_to_sequence
 from text.zh_frontend import zh_to_pinyin, get_seg, get_sentence_positions, is_chinese_character
 
-hps = utils.get_hparams_from_file("/Volumes/Extend/下载/config (3).json")
+hps = utils.get_hparams_from_file("/Volumes/Extend/下载/hiertts32k_middle_train/config (3).json")
 
 net_g = SynthesizerTrn(
         len(symbols),
@@ -19,7 +20,8 @@ net_g = SynthesizerTrn(
         **hps.model,
         config=hps.config)
 
-utils.load_checkpoint("/Volumes/Extend/下载/G_97000.pth", net_g)
+pth = "/Volumes/Extend/下载/G_100000.pth"
+utils.load_checkpoint(pth, net_g)
 
 
 zh_dict = [i.strip() for i in open("text/zh_dict2.dict").readlines()]
@@ -168,4 +170,11 @@ with torch.no_grad():
     y_hat = net_g.infer(x, x_lengths, txt, None, txt2sub, speakers, None, None, sub2phn_m, sub2phn_e,
                                    word2sub_m, word2sub_e, sent2word_m, sent2word_e, None, sub2sub, sub_len)
 print(y_hat.shape)
-soundfile.write("out2.wav", y_hat[0,0,:].numpy(),  16000)
+save_base = "samples/{}-{}.wav".format(text[:3], pth.split("/")[-1])
+if os.path.exists(save_base):
+    for i in range(10):
+        if not os.path.exists(f"{save_base}.{i}.wav"):
+            soundfile.write(f"{save_base}.{i}.wav", y_hat[0, 0, :].numpy(), 32000)
+            break
+else:
+    soundfile.write(save_base, y_hat[0,0,:].numpy(),  32000)

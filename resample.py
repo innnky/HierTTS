@@ -8,11 +8,11 @@ from multiprocessing import Pool
 # 定义输入和输出目录
 from tqdm import tqdm
 
-input_dir = '/Volumes/Extend/下载/vispeech/mfa_temp/wavs/zh/paimon'
-output_dir = '/Volumes/Extend/下载/vispeech/mfa_temp/wavs/zh/paimon16k'
+input_dir = 'mfa_temp/wavs/zh/biaobei'
+output_dir = 'mfa_temp/wavs/zh/biaobei32k'
 
 # 定义采样率为16K
-sample_rate = 16000
+sample_rate = 32000
 
 # 确保输出目录存在
 if not os.path.exists(output_dir):

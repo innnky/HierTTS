@@ -11,18 +11,18 @@ import tgt
 from preprocessors.utils import get_alignment_word_boundary
 
 from text.symbols import symbols
-# from text.zh_frontend import get_seg
-from text.prosody import get_seg
+from text.zh_frontend import get_seg
+# from text.prosody import get_seg
 # print(symbols)
 # preprocessed_out_path = "norm_preprocessed_hifi16_bert/"
-preprocessed_out_path = "/Volumes/Extend/下载/biaobei"
-tgt_base_path = "mfa_temp/textgrids/zh/biaobei"
-wav_base_path = "mfa_temp/wavs/zh/biaobei"
-transcription_path = "/Volumes/Extend/下载/BZNSYP/000001-010000.txt"
-sampling_rate = 16000
-hop = 200
-nfft = 1024
-win_length = 800
+preprocessed_out_path = "/Volumes/Extend/下载/paimon"
+tgt_base_path = "/Volumes/Extend/下载/vispeech/mfa_temp/textgrids/zh/paimon"
+wav_base_path = "/Volumes/Extend/下载/vispeech/mfa_temp/wavs/zh/paimon32k"
+transcription_path = "/Volumes/Extend/下载/vispeech/data/zh/paimon/transcription_raw.txt"
+sampling_rate = 32000
+hop = 400
+nfft = 2048
+win_length = 1600
 
 def stft(y):
     return librosa.stft(
@@ -104,7 +104,7 @@ os.makedirs(f"{preprocessed_out_path}/spec", exist_ok=True)
 
 lab_dict ={}
 for line in open(transcription_path).readlines():
-    name, txt =line.strip().split("|")
+    name,_, txt =line.strip().split("|")
     lab_dict[name] = txt
 
 bert_encodings = {line.strip():idx for idx, line in enumerate(open("tiny_bert/vocab.txt").readlines())}
