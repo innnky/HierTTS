@@ -10,7 +10,7 @@ from models import SynthesizerTrn
 from text import symbols, text_to_sequence
 from text.zh_frontend import zh_to_pinyin, get_seg, get_sentence_positions, is_chinese_character
 
-hps = utils.get_hparams_from_file("/Volumes/Extend/下载/hiertts32k_middle_train/config (3).json")
+hps = utils.get_hparams_from_file("configs/hifigan.json")
 
 net_g = SynthesizerTrn(
         len(symbols),
@@ -20,7 +20,7 @@ net_g = SynthesizerTrn(
         **hps.model,
         config=hps.config)
 
-pth = "/Volumes/Extend/下载/G_100000.pth"
+pth = "/Volumes/Extend/下载/G_126500 (1).pth"
 utils.load_checkpoint(pth, net_g)
 
 
@@ -29,6 +29,7 @@ zh_dict = {i.split("\t")[0]: i.split("\t")[1] for i in zh_dict}
 
 
 text = "人工智能是计算机科学的一个分支，它企图了解智能的实质，并生产出一种新的能以人类智能相似的方式做出反应的智能机器，该领域的研究包括机器人、语言识别、图像识别、自然语言处理和专家系统等。人工智能从诞生以来，理论和技术日益成熟，应用领域也不断扩大，可以设想，未来人工智能带来的科技产品，将会是人类智慧的“容器”。人工智能可以对人的意识、思维的信息过程的模拟。人工智能不是人的智能，但能像人那样思考、也可能超过人的智能。"
+# text = "下面给大家简单介绍一下怎么使用这个教程吧！首先我们要有魔法，才能访问到谷歌的云平台。点击连接并更改运行时类型，设置硬件加速器为GPU。然后，我们再从头到尾挨个点击每个代码块的运行标志。可能需要等待一定的时间。当我们进行到语音合成部分时，就可以更改要说的文本，并设置保存的文件名啦。"
 
 segments = get_seg(text)
 clean_txt = ''
